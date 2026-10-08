@@ -5,7 +5,7 @@
 ![ERASE overview](figure/overview.png)
 
 ERASE is a training-free two-stage visual token pruning method for vision-language models.
-This repository is the official implementation of [ERASE: Eliminating Redundant Visual Tokens via Adaptive Two-Stage Token Pruning](https://arxiv.org/abs/2605.09982), providing ERASE for Qwen2.5-VL, Qwen3-VL and InternVL3, and an evaluation setup based on `VLMEvalKit`.
+This repository is the official implementation of [ERASE](https://arxiv.org/abs/2605.09982), providing ERASE for Qwen2.5-VL, Qwen3-VL and InternVL3, and an evaluation setup based on `VLMEvalKit`.
 
 
 ## Project Structure
