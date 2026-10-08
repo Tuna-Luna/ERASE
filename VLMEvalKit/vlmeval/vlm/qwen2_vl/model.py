@@ -15,20 +15,8 @@ from ...smp import get_gpu_memory, listinstr
 from ...dataset import DATASET_MODALITY
 
 VLLM_MAX_IMAGE_INPUT_NUM = 24
+ERASE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
 
-def expand2square(pil_img, background_color):
-    width, height = pil_img.size
-    from PIL import Image
-    if width == height:
-        return pil_img
-    elif width > height:
-        result = Image.new(pil_img.mode, (width, width), background_color)
-        result.paste(pil_img, (0, (width - height) // 2))
-        return result
-    else:
-        result = Image.new(pil_img.mode, (height, height), background_color)
-        result.paste(pil_img, ((height - width) // 2, 0))
-        return result
 
 def ensure_image_url(image: str) -> str:
     prefixes = ['http://', 'https://', 'file://', 'data:image;']
@@ -236,10 +224,14 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
         self.model_path = model_path
         MODEL_CLS = None
 
-        self.vision_token_num = kwargs.pop("vision_token_num")
-        self.policy = kwargs.pop("policy")
-        self.stage1_retain = kwargs.pop("stage1_retain")
-        self.entropy = kwargs.pop("entropy")
+        self.policy = kwargs.pop("policy", "base")
+        if self.policy not in {"base", "erase"}:
+            raise ValueError(f"Unknown policy {self.policy!r}: expected 'base' or 'erase'")
+        self.erase_kwargs = {
+            key: kwargs.pop(key)
+            for key in ("retain_ratio", "late_ratio", "edge_weight", "edge_tau", "layer_list")
+            if key in kwargs
+        }
 
         if listinstr(['omni'], model_path.lower()):
             try:
@@ -251,31 +243,18 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
             self.processor = Qwen2_5OmniProcessor.from_pretrained(model_path)
         elif listinstr(['2.5', '2_5', 'qwen25', 'mimo'], model_path.lower()):
             from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
-            import torch
 
-            if self.policy=="base":
+            if ERASE_ROOT not in sys.path:
+                sys.path.insert(0, ERASE_ROOT)
+            if self.policy == "erase":
+                from models.modeling_qwen2_5_vl_ERASE import Qwen2_5_VLForConditionalGeneration_custom
+                MODEL_CLS = Qwen2_5_VLForConditionalGeneration_custom
+            else:
                 MODEL_CLS = Qwen2_5_VLForConditionalGeneration
-                print(f"load {self.policy} model")                
-            elif self.policy == "erase":
-                import sys, os, argparse, torch
-                sys.path.append("../") # path to model
-                from models.modeling_qwen2_5_vl_ERASE import Qwen2_5_VLForConditionalGeneration_custom 
-                MODEL_CLS = Qwen2_5_VLForConditionalGeneration_custom       
-                print(f"load {self.policy} model")   
-            elif self.policy == "bayes":
-                import sys, os, argparse, torch
-                sys.path.append("../") # path to model
-                from models.bayes_search.modeling_qwen2_5_vl_bayes import Qwen2_5_VLForConditionalGeneration_custom 
-                MODEL_CLS = Qwen2_5_VLForConditionalGeneration_custom       
-                print(f"load {self.policy} model")                   
-            ##############################################
+            print(f"load {self.policy} model")
             self.processor = AutoProcessor.from_pretrained(model_path)
-            # if self.vision_token_num >=0:
-            import sys, os, argparse, torch
-            sys.path.append("../") # path to model
             from models.image_processing_fast import CustomQwen2VLImageProcessor
             self.processor.image_processor = CustomQwen2VLImageProcessor.from_pretrained(model_path)
-            
         else:
             from transformers import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
             MODEL_CLS = Qwen2VLForConditionalGeneration
@@ -332,14 +311,9 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
                 model_path, torch_dtype='auto', device_map="auto", attn_implementation='flash_attention_2'
             )
 
-            if self.policy =="erase" or self.policy =="bayes":
-                self.model.model.vision_token_num = self.vision_token_num
-                self.model.model.entropy = self.entropy
-                self.model.model.stage1_retain = self.stage1_retain
-
-            print("Retained Token Num: ", self.vision_token_num)
-            # print("Dtype: ", self.model.dtype)
-            # print("Attention Implementation: ", self.model.model.language_model.text_attn_implementation)
+            if self.policy == "erase":
+                self.model.model.configure_erase(**self.erase_kwargs)
+                print(f"ERASE config: {self.erase_kwargs}")
             self.model.eval()
 
         torch.cuda.empty_cache()
@@ -512,28 +486,21 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
             inputs = self.processor(text=text, images=images,audio=audios, videos=videos, padding=True, return_tensors='pt',use_audio_in_video=self.use_audio_in_video)  # noqa: E501
         else:
             images, videos = process_vision_info([messages])
-            ### Fix Image Resolution #####
-            # print("Fix image Resolution")
-            # if self.vision_token_num != 0:
-            #     images = [expand2square(image, tuple(int(x*255) for x in self.processor.image_processor.image_mean)) for image in images]
-            #     images = [image.resize((36*28, 36*28)) for image in images]
-            ###############################
             inputs = self.processor(text=text, images=images, videos=videos, padding=True, return_tensors='pt')  # noqa: E501
-            ###############
-            resized_img_list = None
-            resized_img_list = self.processor.image_processor.group_img
-            ###############
         inputs = inputs.to('cuda')
 
         if listinstr(['omni'], self.model_path.lower()):
             self.generate_kwargs['use_audio_in_video'] = self.use_audio_in_video
             self.generate_kwargs['return_audio'] = False
-    
+
+        extra_kwargs = {}
+        if self.policy == "erase":
+            extra_kwargs["kwargs"] = {"images": self.processor.image_processor.group_img}
         generated_ids = self.model.generate(
             **inputs,
             **self.generate_kwargs,
             do_sample=False,
-            kwargs=resized_img_list
+            **extra_kwargs,
         )
 
         generated_ids = [
@@ -683,7 +650,7 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
             return self.generate_inner_lmdeploy(message, dataset=dataset)
         else:
             return self.generate_inner_transformers(message, dataset=dataset)
-        
+
 
 class Qwen2VLChatAguvis(Qwen2VLChat):
     def __init__(self, mode=None, **kwargs):

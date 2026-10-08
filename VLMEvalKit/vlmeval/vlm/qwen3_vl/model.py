@@ -12,6 +12,7 @@ from ...smp import get_gpu_memory, listinstr
 
 
 VLLM_MAX_IMAGE_INPUT_NUM = 24
+ERASE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
 
 
 def is_moe_model(model_path: str) -> bool:
@@ -114,17 +115,19 @@ class Qwen3VLChat(Qwen3VLPromptMixin, BaseModel):
         self.use_vllm = kwargs.get('use_vllm', False)
         self.use_lmdeploy = kwargs.get('use_lmdeploy', False)
         self.limit_mm_per_prompt = VLLM_MAX_IMAGE_INPUT_NUM
-        import os
-        
         os.environ['VLLM_WORKER_MULTIPROC_METHOD'] = 'spawn'
         assert self.use_vllm + self.use_lmdeploy <= 1, "You can only set one flag `use_vllm` to True"
 
-        ##########################
-        self.vision_token_num = kwargs.pop("vision_token_num")
-        self.policy = kwargs.pop("policy")
-        self.stage1_retain = kwargs.pop("stage1_retain")
-        self.entropy = kwargs.pop("entropy")
-        ##########################
+        self.policy = kwargs.pop("policy", "base")
+        if self.policy not in {"base", "erase"}:
+            raise ValueError(f"Unknown policy {self.policy!r}: expected 'base' or 'erase'")
+        self.erase_kwargs = {
+            key: kwargs.pop(key)
+            for key in ("retain_ratio", "late_ratio", "edge_weight", "edge_tau", "layer_list")
+            if key in kwargs
+        }
+        if self.policy == "erase" and self.use_vllm:
+            raise ValueError("--policy erase runs with transformers only; do not set use_vllm")
 
         if self.use_vllm:
             if listinstr(['omni'], self.model_path.lower()):
@@ -160,42 +163,22 @@ class Qwen3VLChat(Qwen3VLPromptMixin, BaseModel):
                 self.model = Qwen3OmniMoeForConditionalGeneration.from_pretrained(
                     model_path, dtype='auto', device_map='auto', attn_implementation='flash_attention_2'
                 )
-            # else:
-            #     self.model = AutoModelForImageTextToText.from_pretrained(
-            #         model_path, torch_dtype='auto', device_map='auto', attn_implementation='flash_attention_2'
-            #     )
-            elif self.policy == "base":
+            elif self.policy == "erase":
+                import sys
+                if ERASE_ROOT not in sys.path:
+                    sys.path.insert(0, ERASE_ROOT)
+                from models.modeling_qwen3_vl_ERASE import Qwen3VLForConditionalGeneration_custom
+                from models.image_processing_fast import CustomQwen2VLImageProcessor
+                self.model = Qwen3VLForConditionalGeneration_custom.from_pretrained(
+                    model_path, torch_dtype='auto', device_map='auto', attn_implementation='flash_attention_2'
+                )
+                self.processor.image_processor = CustomQwen2VLImageProcessor.from_pretrained(model_path)
+                self.model.model.configure_erase(**self.erase_kwargs)
+                print(f"load {self.policy} model, ERASE config: {self.erase_kwargs}")
+            else:
                 self.model = AutoModelForImageTextToText.from_pretrained(
                     model_path, torch_dtype='auto', device_map='auto', attn_implementation='flash_attention_2'
                 )
-                print(f"load {self.policy} model") 
-            elif self.policy == "erase":
-                import sys, os, argparse, torch
-                sys.path.append("../") # path to model
-                from models.modeling_qwen3_vl_ERASE import Qwen3VLForConditionalGeneration_custom 
-                self.model = Qwen3VLForConditionalGeneration_custom.from_pretrained(
-                    model_path, torch_dtype='auto', device_map='auto', attn_implementation='flash_attention_2'
-                )       
-                print(f"load {self.policy} model")     
-            elif self.policy == "bayes":
-                import sys, os, argparse, torch
-                sys.path.append("../") # path to model
-                from models.bayes_search.modeling_qwen3_vl_bayes import Qwen3VLForConditionalGeneration_custom 
-                self.model = Qwen3VLForConditionalGeneration_custom.from_pretrained(
-                    model_path, torch_dtype='auto', device_map='auto', attn_implementation='flash_attention_2'
-                )       
-                print(f"load {self.policy} model")                     
-            ### configurations ####
-            import sys, os, argparse, torch
-            sys.path.append("../") # path to model
-            from models.image_processing_fast import CustomQwen2VLImageProcessor
-            self.processor.image_processor = CustomQwen2VLImageProcessor.from_pretrained(model_path)
-
-            if self.policy =="erase" or self.policy =="bayes":
-                self.model.model.vision_token_num = self.vision_token_num
-                self.model.model.entropy = self.entropy
-                self.model.model.stage1_retain = self.stage1_retain            
-            #######################
             self.model.eval()
 
         torch.cuda.empty_cache()
@@ -319,10 +302,6 @@ class Qwen3VLChat(Qwen3VLPromptMixin, BaseModel):
                 return_tensors='pt',
                 **(video_kwargs or {}),
             )
-            ###############
-            resized_img_list = None
-            resized_img_list = self.processor.image_processor.group_img
-            ###############
         try:
             inputs = inputs.to(self.model.device)
             if hasattr(self.model, 'dtype'):
@@ -350,11 +329,14 @@ class Qwen3VLChat(Qwen3VLPromptMixin, BaseModel):
                 clean_up_tokenization_spaces=False,
             )[0]
         else:
+            extra_kwargs = {}
+            if self.policy == "erase":
+                extra_kwargs["kwargs"] = {"images": self.processor.image_processor.group_img}
             generated_ids = self.model.generate(
                 **inputs,
                 **self.generate_kwargs,
-                do_sample = False, 
-                kwargs={"images": resized_img_list}
+                do_sample=False,
+                **extra_kwargs,
             )
             generated_ids = [
                 output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, generated_ids)

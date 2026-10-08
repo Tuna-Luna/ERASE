@@ -134,6 +134,17 @@ class InternVLChat(BaseModel):
         self.use_cot = (os.getenv('USE_COT') == '1')
         self.use_postprocess = use_postprocess
 
+        self.policy = kwargs.pop("policy", "base")
+        if self.policy not in {"base", "erase"}:
+            raise ValueError(f"Unknown policy {self.policy!r}: expected 'base' or 'erase'")
+        self.erase_kwargs = {
+            key: kwargs.pop(key)
+            for key in ("retain_ratio", "late_ratio", "edge_weight", "edge_tau", "layer_list")
+            if key in kwargs
+        }
+        if self.policy == "erase" and use_lmdeploy:
+            raise ValueError("--policy erase runs with transformers only; do not set use_lmdeploy")
+
         if cot_prompt_version == 'r1':
             self.system_prompt = R1_SYSTEM_PROMPT
             self.cot_prompt = 'Please answer the question and put the final answer within \\boxed{}.'
@@ -187,6 +198,21 @@ class InternVLChat(BaseModel):
                 )
             )
             torch.cuda.set_device(0)
+            self.device = 'cuda'
+        elif self.policy == "erase":
+            import sys
+            erase_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
+            if erase_root not in sys.path:
+                sys.path.insert(0, erase_root)
+            from models.modeling_internvl_ERASE import build_erase_class
+            self.model = build_erase_class(model_path).from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                trust_remote_code=True,
+                low_cpu_mem_usage=True,
+                device_map="auto").eval()
+            self.model.configure_erase(**self.erase_kwargs)
+            print(f"load {self.policy} model, ERASE config: {self.erase_kwargs}")
             self.device = 'cuda'
         else:
             self.model = AutoModel.from_pretrained(

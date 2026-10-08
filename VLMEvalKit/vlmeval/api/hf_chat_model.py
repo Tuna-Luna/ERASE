@@ -112,7 +112,6 @@ class HFChatModel:
 
         if 'llama' in self.model_path.lower():
             from lmdeploy import pipeline, GenerationConfig, TurbomindEngineConfig
-            num_gpu=1
             print(f"Loading model {model_path} with {num_gpu} GPUs")
             backend_config = TurbomindEngineConfig(tp=num_gpu)
             self.gen_config = GenerationConfig(max_new_tokens=256)

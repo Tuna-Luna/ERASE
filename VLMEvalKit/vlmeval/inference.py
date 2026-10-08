@@ -80,7 +80,7 @@ def infer_data_api(model, work_dir, model_name, dataset, index_set=None, api_npr
     return res
 
 
-def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, api_nproc=4, use_vllm=False, vision_token_num=128, policy="base", stage1_retain=1, entropy=0.5):
+def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, api_nproc=4, use_vllm=False, model_kwargs=None):
     dataset_name = dataset.dataset_name
     prev_file = f'{work_dir}/{model_name}_{dataset_name}_PREV.pkl'
     res = load(prev_file) if osp.exists(prev_file) else {}
@@ -92,7 +92,7 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
     lt = len(sheet_indices)
     data = dataset.data.iloc[sheet_indices]
     data_indices = [i for i in data['index']]
-    
+
     # If finished, will exit without building the model
     all_finished = True
     for i in range(lt):
@@ -115,10 +115,8 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
         or 'Qwen2.5-VL' in model_name
     ):
         kwargs = {'use_vllm': use_vllm}
-    kwargs["vision_token_num"] = vision_token_num
-    kwargs["policy"] = policy
-    kwargs["stage1_retain"] = stage1_retain
-    kwargs["entropy"] = entropy
+    if model_kwargs:
+        kwargs.update(model_kwargs)
     # (25.06.05) In newer version of transformers (after 4.50), with device_map='auto' and torchrun launcher,
     # Transformers automatically adopt TP parallelism, which leads to compatibility problems with VLMEvalKit
     # (In VLMEvalKit, we use torchrun to launch multiple model instances on a single node).
@@ -147,9 +145,6 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
     else:
         model.set_dump_image(dataset.dump_image)
 
-    if policy == "bayes":
-        complex_ratio = [0] * (len(entropy) + 1)
-
     for i in tqdm(range(lt), desc=f'Infer {model_name}/{dataset_name}, Rank {rank}/{world_size}'):
         idx = data.iloc[i]['index']
         if idx in res:
@@ -171,22 +166,9 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
                 response = f'{FAIL_MSG}: {type(err)} {str(err)}'
         else:
             response = model.generate(message=struct, dataset=dataset_name)
-        if policy == "bayes":
-            entropy_score = model.model.model.entropy_median
-            placed = False
-            for i, threshold in enumerate(entropy):
-                if entropy_score > threshold:
-                    complex_ratio[i] += 1
-                    placed = True
-                    break 
-            if not placed:
-                complex_ratio[-1] += 1    
         torch.cuda.empty_cache()
 
         if verbose:
-            #####################
-            print("input: ", struct, flush = True)
-            ########################
             print(response, flush=True)
 
         res[idx] = response
@@ -195,15 +177,12 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
 
     res = {k: res[k] for k in data_indices}
     dump(res, out_file)
-    if policy == "bayes":
-        return model, complex_ratio
-    else:
-        return model
+    return model
 
 
 # A wrapper for infer_data, do the pre & post processing
 def infer_data_job(
-    model, work_dir, model_name, dataset, verbose=False, api_nproc=4, ignore_failed=False, use_vllm=False, vision_token_num=1.0, policy="base", stage1_retain=1, entropy=0.5
+    model, work_dir, model_name, dataset, verbose=False, api_nproc=4, ignore_failed=False, use_vllm=False, model_kwargs=None
 ):
     rank, world_size = get_rank_and_world_size()
     dataset_name = dataset.dataset_name
@@ -225,18 +204,9 @@ def infer_data_job(
     tmpl = osp.join(work_dir, '{}' + f'{world_size}_{dataset_name}.pkl')
     out_file = tmpl.format(rank)
 
-    if policy == "bayes":
-        model, complex_ratio = infer_data(
-            model=model, work_dir=work_dir, model_name=model_name, dataset=dataset,
-            out_file=out_file, verbose=verbose, api_nproc=api_nproc, use_vllm=use_vllm, vision_token_num = vision_token_num, policy=policy, stage1_retain=stage1_retain, entropy=entropy)
-    else:
-        model = infer_data(
-            model=model, work_dir=work_dir, model_name=model_name, dataset=dataset,
-            out_file=out_file, verbose=verbose, api_nproc=api_nproc, use_vllm=use_vllm, vision_token_num = vision_token_num, policy=policy, stage1_retain=stage1_retain, entropy=entropy)
-
-    # model = infer_data(
-    #     model=model, work_dir=work_dir, model_name=model_name, dataset=dataset,
-    #     out_file=out_file, verbose=verbose, api_nproc=api_nproc, use_vllm=use_vllm)
+    model = infer_data(
+        model=model, work_dir=work_dir, model_name=model_name, dataset=dataset,
+        out_file=out_file, verbose=verbose, api_nproc=api_nproc, use_vllm=use_vllm, model_kwargs=model_kwargs)
     if world_size > 1:
         dist.barrier()
 
@@ -280,7 +250,4 @@ def infer_data_job(
             os.remove(tmpl.format(i))
     if world_size > 1:
         dist.barrier()
-    if policy == "bayes":
-        return model, complex_ratio 
-    else:
-        return model
+    return model

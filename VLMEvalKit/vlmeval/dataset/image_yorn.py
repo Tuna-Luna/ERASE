@@ -58,25 +58,14 @@ class ImageYORNDataset(ImageBaseDataset):
             unknown = data[data['extracted'] == 'Unknown']
 
             model = judge_kwargs.get('model', 'exact_matching')
-            print("judge model: ", model)
             if model == 'exact_matching':
                 model = None
-
-            elif model =="llama31-8b":
-                model = build_judge(**judge_kwargs)
-
             elif gpt_key_set():
                 model = build_judge(**judge_kwargs)
                 if not model.working():
                     warnings.warn('OPENAI API is not working properly, will use exact matching for evaluation')
                     warnings.warn(DEBUG_MESSAGE)
                     model = None
-            elif google_key_set():
-                model = build_judge(**judge_kwargs)
-                if not model.working():
-                    warnings.warn('GOOGLE API is not working properly, will use exact matching for evaluation')
-                    warnings.warn(DEBUG_MESSAGE)
-                    model = None                
             else:
                 model = None
                 warnings.warn('OPENAI_API_KEY is not working properly, will use exact matching for evaluation')

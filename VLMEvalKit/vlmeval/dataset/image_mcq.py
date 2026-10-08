@@ -194,7 +194,7 @@ class ImageMCQDataset(ImageBaseDataset):
     DATASET_URL.update(MTL_MMBench_URLS)
     DATASET_MD5.update(MMMB_MD5)
     DATASET_MD5.update(MTL_MMBench_MD5)
-    """
+
     def build_prompt(self, line):
 
         if isinstance(line, int):
@@ -231,62 +231,7 @@ class ImageMCQDataset(ImageBaseDataset):
         msgs.append(dict(type='text', value=prompt))
 
         return msgs
-    """
-    def build_prompt(self, line):
 
-        if isinstance(line, int):
-            line = self.data.iloc[line]
-
-        image_keys = [
-            col for col in line.index
-            if (
-                isinstance(col, str)
-                and ("image" in col.lower() or "img" in col.lower())
-            )
-        ]
-
-        # 이미지가 실제로 있는지 확인
-        has_image = False
-        tgt_path = None
-
-        if len(image_keys) > 0:
-            first_key = image_keys[0]
-            value = line[first_key]
-
-            if value is not None and value != "":
-                has_image = True
-                if self.meta_only:
-                    tgt_path = toliststr(value)
-                else:
-                    tgt_path = self.dump_image(line)
-
-        question = line['question']
-        options = {
-            cand: line[cand]
-            for cand in string.ascii_uppercase
-            if cand in line and not pd.isna(line[cand])
-        }
-        options_prompt = 'Options:\n'
-        for key, item in options.items():
-            options_prompt += f'{key}. {item}\n'
-        hint = line['hint'] if ('hint' in line and not pd.isna(line['hint'])) else None
-        prompt = ''
-        if hint is not None:
-            prompt += f'Hint: {hint}\n'
-        prompt += f'Question: {question}\n'
-        if len(options):
-            prompt += options_prompt
-            prompt += 'Please select the correct answer from the options above. \n'
-
-        msgs = []
-        if has_image:
-            if isinstance(tgt_path, list):
-                msgs.extend([dict(type='image', value=p) for p in tgt_path])
-            else:
-                msgs = [dict(type='image', value=tgt_path)]
-        msgs.append(dict(type='text', value=prompt))
-
-        return msgs
     def evaluate(self, eval_file, **judge_kwargs):
         if judge_kwargs.get('use_verifier', False):
             return self.evaluate_verifier(eval_file, **judge_kwargs)
@@ -315,8 +260,8 @@ class ImageMCQDataset(ImageBaseDataset):
             circular = True
 
         model = judge_kwargs.get('model', 'exact_matching')
-        assert model in ['chatgpt-0125', 'exact_matching', 'gpt-4-0125', 'gemini-2.0']
-        name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4', 'gemini-2.0': 'gemini'}
+        assert model in ['chatgpt-0125', 'exact_matching', 'gpt-4-0125']
+        name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4'}
         name_str = name_str_map[model] if model in name_str_map else model
 
         if model == 'exact_matching':
@@ -327,12 +272,6 @@ class ImageMCQDataset(ImageBaseDataset):
                 warnings.warn('OPENAI API is not working properly, will use exact matching for evaluation')
                 warnings.warn(DEBUG_MESSAGE)
                 model = None
-        elif google_key_set():
-            model = build_judge(**judge_kwargs)
-            if not model.working():
-                warnings.warn('GOOGLE API is not working properly, will use exact matching for evaluation')
-                warnings.warn(DEBUG_MESSAGE)
-                model = None            
         else:
             warnings.warn('OPENAI_API_KEY is not set properly, will use exact matching for evaluation')
             model = None
@@ -1348,8 +1287,8 @@ class HRBenchDataset(ImageMCQDataset):
         nproc = judge_kwargs.pop('nproc', 4)
 
         model = judge_kwargs.get('model', 'extract_matching')
-        assert model in ['chatgpt-0125', 'exact_matching', 'gpt-4-0125', 'gemini-2.0']
-        name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4', 'gemini-2.0': 'gemini'}
+        assert model in ['chatgpt-0125', 'exact_matching', 'gpt-4-0125']
+        name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4'}
         name_str = name_str_map[model] if model in name_str_map else model
 
         if model == 'exact_matching':
@@ -1360,12 +1299,6 @@ class HRBenchDataset(ImageMCQDataset):
                 warnings.warn('OPENAI API is not working properly, will use exact matching for evaluation')
                 warnings.warn(DEBUG_MESSAGE)
                 model = None
-        elif google_key_set():
-            model = build_judge(**judge_kwargs)
-            if not model.working():
-                warnings.warn('GOOGLE API is not working properly, will use exact matching for evaluation')
-                warnings.warn(DEBUG_MESSAGE)
-                model = None      
         else:
             warnings.warn('OPENAI_API_KEY is not set properly, will use exact matching for evaluation')
             model = None

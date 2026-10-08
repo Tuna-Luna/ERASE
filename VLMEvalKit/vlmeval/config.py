@@ -708,9 +708,6 @@ thyme_series = {
 llava_series = {
     "llava_v1.5_7b": partial(LLaVA, model_path="liuhaotian/llava-v1.5-7b"),
     "llava_v1.5_13b": partial(LLaVA, model_path="liuhaotian/llava-v1.5-13b"),
-    #######################################################
-    "llava_v1.6_7b": partial(CustomLLaVA, model_path="liuhaotian/llava-v1.6-vicuna-7b"),
-    #######################################################
     "llava_v1_7b": partial(LLaVA, model_path=LLAVA_V1_7B_MODEL_PTH),
     "sharegpt4v_7b": partial(LLaVA, model_path="Lin-Chen/ShareGPT4V-7B"),
     "sharegpt4v_13b": partial(LLaVA, model_path="Lin-Chen/ShareGPT4V-13B"),
@@ -1128,11 +1125,11 @@ qwen3vl_series = {
     ),
     "Qwen3-VL-8B-Instruct": partial(
         Qwen3VLChat,
-        model_path= "Qwen/Qwen3-VL-8B-Instruct",
+        model_path="Qwen/Qwen3-VL-8B-Instruct",
         use_custom_prompt=False,
         use_vllm=False,
         temperature=0.7, 
-        max_new_tokens=1280,
+        max_new_tokens=512,
         repetition_penalty=1.0,
         presence_penalty=1.5,
         top_p=0.8,
@@ -1140,7 +1137,7 @@ qwen3vl_series = {
     ),
     "Qwen3-VL-4B-Instruct": partial(
         Qwen3VLChat,
-        model_path= "Qwen/Qwen3-VL-4B-Instruct",
+        model_path="Qwen/Qwen3-VL-4B-Instruct",
         use_custom_prompt=False,
         use_vllm=False,
         temperature=0.7, 
@@ -1154,7 +1151,7 @@ qwen3vl_series = {
         Qwen3VLChat,
         model_path="Qwen/Qwen3-VL-2B-Instruct",
         use_custom_prompt=False,
-        use_vllm=True, # True
+        use_vllm=True,
         temperature=0.7, 
         max_new_tokens=16384,
         repetition_penalty=1.0,
@@ -1526,7 +1523,7 @@ qwen2vl_series = {
     ),
     "Qwen2.5-VL-3B-Instruct": partial(
         Qwen2VLChat,
-        model_path= "Qwen/Qwen2.5-VL-3B-Instruct",
+        model_path="Qwen/Qwen2.5-VL-3B-Instruct",
         min_pixels=1280 * 28 * 28,
         max_pixels=16384 * 28 * 28,
         use_custom_prompt=False,
@@ -1540,12 +1537,11 @@ qwen2vl_series = {
     ),
     "Qwen2.5-VL-7B-Instruct": partial(
         Qwen2VLChat,
-        model_path= "Qwen/Qwen2.5-VL-7B-Instruct",
+        model_path="Qwen/Qwen2.5-VL-7B-Instruct",
         min_pixels=1280 * 28 * 28,
         max_pixels=16384 * 28 * 28,
         use_custom_prompt=False,
     ),
-
     "Qwen2.5-VL-7B-Instruct-ForVideo": partial(
         Qwen2VLChat,
         model_path="Qwen/Qwen2.5-VL-7B-Instruct",

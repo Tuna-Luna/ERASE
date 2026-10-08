@@ -29,7 +29,6 @@ class CustomQwen2VLImageProcessor(Qwen2VLImageProcessorFast):
         return_tensors: Optional[Union[str, TensorType]],
         **kwargs,
     ):
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -50,19 +49,15 @@ class CustomQwen2VLImageProcessor(Qwen2VLImageProcessorFast):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         processed_grids = {}
         for shape, stacked_images in grouped_images.items():
             resized_height, resized_width = stacked_images.shape[-2:]
-            # Fused rescale and normalize
             patches = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
             if patches.ndim == 4:
-                # add a temporal dimension if we have images
                 patches = patches.unsqueeze(1)
             if patches.shape[1] % temporal_patch_size != 0:
                 repeats = patches[:, -1:].repeat(1, temporal_patch_size - 1, 1, 1, 1)
@@ -83,8 +78,6 @@ class CustomQwen2VLImageProcessor(Qwen2VLImageProcessorFast):
                 merge_size,
                 patch_size,
             )
-            # Reorder dimensions to group grid and patch information for subsequent flattening.
-            # (batch, grid_t, grid_h, grid_w, merge_h, merge_w, channel, temp_patch_size, patch_h, patch_w)
             patches = patches.permute(0, 1, 4, 7, 5, 8, 3, 2, 6, 9)
             flatten_patches = patches.reshape(
                 batch_size,
@@ -106,6 +99,6 @@ class CustomQwen2VLImageProcessor(Qwen2VLImageProcessorFast):
 
         
         restored_images = reorder_images(grouped_images, grouped_images_index)
-        self.group_img = restored_images #list(grouped_images.values())
+        self.group_img = restored_images
 
         return batch_feature

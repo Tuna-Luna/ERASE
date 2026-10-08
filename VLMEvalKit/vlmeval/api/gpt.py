@@ -156,7 +156,9 @@ class OpenAIWrapper(BaseAPI):
             if os.environ.get('BOYUE', None):
                 self.api_base = os.environ.get('BOYUE_API_BASE')
                 self.key = os.environ.get('BOYUE_API_KEY')
+
         self.logger.info(f'Using API Base: {self.api_base}; API Key: {self.key}')
+
     # inputs can be a lvl-2 nested list: [content1, content2, content3, ...]
     # content can be a string or a list of image & text
     def prepare_itlist(self, inputs):
@@ -225,7 +227,7 @@ class OpenAIWrapper(BaseAPI):
             payload.pop('max_tokens')
             payload.pop('n')
             payload['reasoning_effort'] = 'high'
-        
+
         response = requests.post(
             self.api_base,
             headers=headers, data=json.dumps(payload), timeout=self.timeout * 1.1)

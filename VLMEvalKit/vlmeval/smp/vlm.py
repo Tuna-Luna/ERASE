@@ -192,11 +192,6 @@ def gpt_key_set():
         return isinstance(openai_key, str)
     return isinstance(openai_key, str) and openai_key.startswith('sk-')
 
-def google_key_set():
-    google_key = os.environ.get('GOOGLE_API_KEY', None)
-
-    return isinstance(google_key, str)
-
 
 def apiok(wrapper):
     s = wrapper.generate('Hello!')

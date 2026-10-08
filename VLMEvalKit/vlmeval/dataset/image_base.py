@@ -182,7 +182,7 @@ class ImageBaseDataset:
     # Post built hook, will be called after the dataset is built, can override
     def post_build(self, dataset):
         pass
-    """
+
     # Given one data record, return the built prompt (a multi-modal message), can override
     def build_prompt(self, line):
         if isinstance(line, int):
@@ -202,50 +202,8 @@ class ImageBaseDataset:
             msgs = [dict(type='image', value=tgt_path)]
         msgs.append(dict(type='text', value=question))
         return msgs
-    """
-    def build_prompt(self, line):
-        if isinstance(line, int):
-            line = self.data.iloc[line]
 
-        # image 관련 컬럼 자동 탐색
-        image_keys = [
-            col for col in line.index
-            if (
-                isinstance(col, str)
-                and ("image" in col.lower() or "img" in col.lower())
-            )
-        ]
-
-        # 이미지가 실제로 있는지 확인
-        has_image = False
-        tgt_path = None
-
-        if len(image_keys) > 0:
-            first_key = image_keys[0]
-            value = line[first_key]
-
-            if value is not None and value != "":
-                has_image = True
-                if self.meta_only:
-                    tgt_path = toliststr(value)
-                else:
-                    tgt_path = self.dump_image(line)
-
-        question = line["question"]
-        msgs = []
-
-        # 이미지가 있는 경우에만 넣기
-        if has_image:
-            if isinstance(tgt_path, list):
-                msgs.extend([dict(type="image", value=p) for p in tgt_path])
-            else:
-                msgs.append(dict(type="image", value=tgt_path))
-
-        # 항상 텍스트는 추가
-        msgs.append(dict(type="text", value=question))
-        return msgs
     # Given the prediction file, return the evaluation results in the format of a dictionary or pandas dataframe
     @abstractmethod
     def evaluate(self, eval_file, **judge_kwargs):
         pass
-    

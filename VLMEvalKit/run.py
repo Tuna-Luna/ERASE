@@ -196,18 +196,23 @@ You can launch the evaluation by setting either --data and --model or --config.
         '--use-vllm', action='store_true', help='use vllm to generate, the flag is only supported in Llama4 for now')
     parser.add_argument('--use-verifier', action='store_true', help='use verifier to evaluate')
 
-    parser.add_argument('--vision-token-num', type=float, default=-1)
-    parser.add_argument('--policy', type=str, default="base")
-    parser.add_argument('--retain-ratio', type=float, nargs='+', default=[0.3, 0.6], help="stage 1 retain ratio")
-    parser.add_argument(
-        '--entropy-threshold', 
-        type=float, 
-        nargs='+', 
-        default=[3.6, 1.2], 
-        help='image complexity threshold'
-    )
+    parser.add_argument('--policy', type=str, default='base', choices=['base', 'erase'],
+                        help='base: stock model, erase: two-stage visual token pruning')
+    parser.add_argument('--retain-ratio', type=float, default=0.25,
+                        help='target fraction of vision tokens, averaged over all decoder layers (0, 1]')
+    parser.add_argument('--late-ratio', type=float, default=0.3,
+                        help='fraction of vision tokens kept by the late stage-2 cut (0, 1]')
+    parser.add_argument('--weight', type=float, default=0.2,
+                        help='weight of the edge/entropy cue in the early stage-2 cut')
+    parser.add_argument('--edge_tau', '--edge-tau', type=float, default=0.45,
+                        help='stage-1 edge sensitivity: edge threshold is (1 - edge_tau) x median intensity')
+    parser.add_argument('--layer_list', '--layer-list', type=str, nargs='+', default=['2', '19'],
+                        help='two 1-based decoder layers after which stage 2 prunes, e.g. "2 19"')
 
     args = parser.parse_args()
+    args.layer_list = [int(v) for tok in args.layer_list for v in tok.replace(',', ' ').split()]
+    if len(args.layer_list) != 2 or not (1 <= args.layer_list[0] < args.layer_list[1]):
+        parser.error(f'--layer_list expects two increasing 1-based layer numbers, got {args.layer_list}')
     return args
 
 
@@ -326,6 +331,16 @@ def main():
                     model = model_name  # which is only a name
 
                 if args.mode != "eval":
+                    model_kwargs = {}
+                    if args.policy == 'erase':
+                        model_kwargs = dict(
+                            policy=args.policy,
+                            retain_ratio=args.retain_ratio,
+                            late_ratio=args.late_ratio,
+                            edge_weight=args.weight,
+                            edge_tau=args.edge_tau,
+                            layer_list=args.layer_list,
+                        )
                     # Perform the Inference
                     if dataset.MODALITY == 'VIDEO':
                         model = infer_data_job_video(
@@ -347,10 +362,7 @@ def main():
                             api_nproc=args.api_nproc,
                             ignore_failed=args.ignore,
                             use_vllm=args.use_vllm,
-                            vision_token_num=args.vision_token_num,
-                            policy = args.policy,
-                            stage1_retain = args.retain_ratio,
-                            entropy = args.entropy_threshold)
+                            model_kwargs=model_kwargs)
                     else:
                         model = infer_data_job(
                             model,
@@ -361,10 +373,7 @@ def main():
                             api_nproc=args.api_nproc,
                             ignore_failed=args.ignore,
                             use_vllm=args.use_vllm,
-                            vision_token_num=args.vision_token_num,
-                            policy = args.policy,
-                            stage1_retain = args.retain_ratio,
-                            entropy = args.entropy_threshold)
+                            model_kwargs=model_kwargs)
 
                 # Set the judge kwargs first before evaluation or dumping
 

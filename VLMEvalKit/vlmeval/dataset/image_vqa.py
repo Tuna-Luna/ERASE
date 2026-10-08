@@ -449,7 +449,7 @@ class MathVerse(ImageBaseDataset):
         'MathVerse_MINI_Text_Lite': '19e4b13bdd30b89a03b2e358bcfefa04',
         'MathVerse_MINI_Text_Dominant': '4f5cd2fa6630ea00bb11d6fde1f6fe6a',
     }
-    """
+
     # Given one data record, return the built prompt (a multi-modal message), can override
     def build_prompt(self, line):
         if isinstance(line, int):
@@ -471,48 +471,7 @@ class MathVerse(ImageBaseDataset):
             msgs = [dict(type='image', value=tgt_path)]
         msgs.append(dict(type='text', value=question))
         return msgs
-    """
-    def build_prompt(self, line):
-        if isinstance(line, int):
-            line = self.data.iloc[line]
 
-        # cot 사용 여부에 따라 question 선택
-        if "cot" in self.dataset_name:
-            question = line["query_cot"]
-        else:
-            question = line["question"]
-
-        # 이미지 존재 여부 검사
-        image_keys = [
-            col for col in line.index
-            if isinstance(col, str) and ("image" in col.lower() or "img" in col.lower())
-        ]
-
-        has_image = False
-        tgt_path = None
-
-        if image_keys:
-            first_key = image_keys[0]
-            value = line[first_key]
-            if value is not None and value != "":
-                has_image = True
-                if self.meta_only:
-                    tgt_path = toliststr(value)
-                else:
-                    tgt_path = self.dump_image(line)
-
-        msgs = []
-
-        # 이미지가 있을 때만 image 메시지 추가
-        if has_image and tgt_path is not None:
-            if isinstance(tgt_path, list):
-                msgs.extend([dict(type="image", value=p) for p in tgt_path])
-            else:
-                msgs.append(dict(type="image", value=tgt_path))
-
-        # 텍스트 메시지는 항상 추가
-        msgs.append(dict(type="text", value=question))
-        return msgs
     # It returns a DataFrame
     @classmethod
     def evaluate(self, eval_file, **judge_kwargs):
